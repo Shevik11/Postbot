@@ -8,7 +8,6 @@ load_dotenv()
 # hardcoded channels
 HARDCODED_CHANNELS = {
     "➤ Electronics": os.getenv("FIRST_CHANNEL"),
-    "➤ FECT": os.getenv("SECOND_CHANNEL"),
 }
 
 # states for ConversationHandler
