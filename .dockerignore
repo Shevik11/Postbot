@@ -1,0 +1,54 @@
+# Git файли
+.git
+.gitignore
+
+# Python кеш
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE файли
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS файли
+.DS_Store
+Thumbs.db
+
+# Логи
+*.log
+
+# База даних (якщо не хочете включати в образ)
+*.db
+*.sqlite
+*.sqlite3
+
+# Временные файли
+tmp/
+temp/

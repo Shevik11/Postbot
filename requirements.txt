@@ -1,0 +1,4 @@
+dotenv
+python-telegram-bot==21.0.1 
+apscheduler 
+python-telegram-bot-calendar

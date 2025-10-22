@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  telegram-bot:
+    build: .
+    container_name: postbot
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+    volumes:
+      # Монтуємо директорію для збереження бази даних
+      - ./data:/app/data
+      # Монтуємо .env файл (опціонально)
+      - ./.env:/app/.env:ro
+    # Залежності (якщо потрібно)
+    # depends_on:
+    #   - redis
+    #   - postgres
+
+  # Приклад додаткових сервісів (розкоментуйте якщо потрібно)
+  # redis:
+  #   image: redis:alpine
+  #   container_name: postbot-redis
+  #   restart: unless-stopped
+  #   volumes:
+  #     - redis_data:/data
+
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: postbot-postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: postbot
+  #     POSTGRES_USER: postbot
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+
+# volumes:
+#   redis_data:
+#   postgres_data:
