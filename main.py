@@ -14,24 +14,27 @@ from telegram.ext import (
 from bot import ChannelBot
 from config import (
     ADD_BUTTONS,
-    ADD_PHOTO,
     ADD_TEXT,
     DELETE_PUBLISHED_CONFIRM,
-    EDIT_PUBLISHED_BUTTONS,
     EDIT_PUBLISHED_MENU,
     EDIT_PUBLISHED_TEXT,
-    EDIT_SCHEDULED_BUTTONS,
-    EDIT_SCHEDULED_PHOTO,
     EDIT_SCHEDULED_POST,
     EDIT_SCHEDULED_TEXT,
+    EDIT_SCHEDULED_PHOTO,
+    EDIT_SCHEDULED_BUTTONS,
     EDIT_SCHEDULED_TIME,
     MAIN_MENU,
-    MANAGE_EDIT_BUTTONS,
     MANAGE_NEW_BUTTONS,
-    MANAGE_PUBLISHED_BUTTONS,
+    MANAGE_NEW_PHOTOS,
+    EDIT_PUBLISHED_POST,
     SCHEDULE_TIME,
     SELECT_CHANNEL,
+    VIEW_PUBLISHED_POSTS,
     VIEW_SCHEDULED,
+    ADD_PHOTO,
+    EDIT_TEXT_FROM_SCHEDULE,
+    EDIT_BUTTONS_FROM_SCHEDULE,
+    EDIT_PHOTO_FROM_SCHEDULE,
     get_bot_token,
 )
 from database import db_connect
@@ -59,29 +62,20 @@ async def main():
         entry_points=[CommandHandler("start", bot.start)],
         states={
             MAIN_MENU: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, bot.main_menu_handler)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, bot.main_menu_handler),
+                MessageHandler(filters.Regex("^(Створити пост|Відкладені пости|Існуючі пости)$"), bot.main_menu_handler),
             ],
             # create post
             ADD_TEXT: [
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
+                MessageHandler(filters.Regex("^(Створити пост|Відкладені пости|Існуючі пости)$"), bot.main_menu_handler),
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND, bot.post_handlers.add_text_handler
                 ),
             ],
-            ADD_PHOTO: [
-                MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
-                MessageHandler(filters.PHOTO, bot.post_handlers.add_photo_handler),
-                MessageHandler(
-                    filters.Regex(r"^✅ Завершити вибір фото$"),
-                    bot.post_handlers.finish_photo_selection_handler,
-                ),
-                MessageHandler(
-                    filters.Regex(r"^➡️ Пропустити фото$"),
-                    bot.post_handlers.skip_photo_handler,
-                ),
-            ],
             ADD_BUTTONS: [
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
+                MessageHandler(filters.Regex("^(Створити пост|Відкладені пости|Існуючі пости)$"), bot.main_menu_handler),
                 MessageHandler(
                     filters.Regex(r"Пропустити"), bot.post_handlers.skip_buttons_handler
                 ),
@@ -89,6 +83,62 @@ async def main():
                     filters.TEXT & ~filters.COMMAND,
                     bot.post_handlers.add_buttons_handler,
                 ),
+            ],
+            # manage photos for NEW posts
+            MANAGE_NEW_PHOTOS: [
+                CallbackQueryHandler(
+                    bot.post_handlers.manage_photos_handler,
+                    pattern=r"^photo_(del_new_\d+|add_new|finish_new)$",
+                ),
+                MessageHandler(
+                    filters.PHOTO,
+                    bot.post_handlers.add_single_photo_handler,
+                ),
+                MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
+            ],
+            # add photos for NEW posts
+            ADD_PHOTO: [
+                MessageHandler(
+                    filters.PHOTO,
+                    bot.post_handlers.add_photo_handler,
+                ),
+                MessageHandler(
+                    filters.Regex("^Пропустити$"),
+                    bot.post_handlers.skip_photo_handler,
+                ),
+                MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
+            ],
+            # edit text from schedule menu
+            EDIT_TEXT_FROM_SCHEDULE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    bot.post_handlers.edit_text_from_schedule_handler,
+                ),
+                MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
+            ],
+            # edit photos from schedule menu
+            EDIT_PHOTO_FROM_SCHEDULE: [
+                CallbackQueryHandler(
+                    bot.post_handlers.manage_photos_handler,
+                    pattern=r"^photo_(del_new_\d+|add_new|finish_new)$",
+                ),
+                MessageHandler(
+                    filters.PHOTO,
+                    bot.post_handlers.add_single_photo_handler,
+                ),
+                MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
+            ],
+            # edit buttons from schedule menu
+            EDIT_BUTTONS_FROM_SCHEDULE: [
+                CallbackQueryHandler(
+                    bot.post_handlers.manage_buttons_handler,
+                    pattern=r"^btn_(del_new_\d+|add_new|finish_new)$",
+                ),
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    bot.post_handlers.add_single_button_handler,
+                ),
+                MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
             ],
             # manage buttons for NEW posts
             MANAGE_NEW_BUTTONS: [
@@ -102,36 +152,20 @@ async def main():
                 ),
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
             ],
-            # manage buttons for EDITING scheduled posts
-            MANAGE_EDIT_BUTTONS: [
-                CallbackQueryHandler(
-                    bot.scheduled_handlers.manage_edit_buttons_handler,
-                    pattern=r"^btn_(del_edit_\d+|add_edit|finish_edit)$",
-                ),
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    bot.scheduled_handlers.add_single_button_to_edit_handler,
-                ),
-                MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
-            ],
-            # manage buttons for PUBLISHED posts
-            MANAGE_PUBLISHED_BUTTONS: [
-                CallbackQueryHandler(
-                    bot.manage_published_buttons_handler,
-                    pattern=r"^btn_(del_published_\d+|add_published|finish_published)$",
-                ),
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    bot.add_single_button_to_published_handler,
-                ),
-                MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
-            ],
             # schedule post
             SCHEDULE_TIME: [
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
                 CallbackQueryHandler(
                     bot.post_handlers.schedule_time_handler,
-                    pattern=r"^(send_now|schedule)$",
+                    pattern=r"^(send_now|schedule|edit_text|edit_photo|edit_buttons)$",
+                ),
+                CallbackQueryHandler(
+                    bot.post_handlers.manage_photos_handler,
+                    pattern=r"^photo_(del_new_\d+|add_new|finish_new)$",
+                ),
+                CallbackQueryHandler(
+                    bot.post_handlers.manage_buttons_handler,
+                    pattern=r"^btn_(del_new_\d+|add_new|finish_new)$",
                 ),
                 CallbackQueryHandler(
                     bot.post_handlers.calendar_callback_handler,
@@ -139,6 +173,10 @@ async def main():
                 ),
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND, bot.post_handlers.set_schedule_time
+                ),
+                MessageHandler(
+                    filters.PHOTO,
+                    bot.post_handlers.add_single_photo_handler,
                 ),
             ],
             SELECT_CHANNEL: [
@@ -187,64 +225,45 @@ async def main():
                 ),
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
             ],
+            # edit scheduled post photos
             EDIT_SCHEDULED_PHOTO: [
-                MessageHandler(filters.PHOTO, bot.scheduled_handlers.add_photo_to_edit),
-                MessageHandler(
-                    filters.Regex(r"^❌ Видалити фото \d+$"),
-                    bot.scheduled_handlers.delete_photo_from_edit,
+                CallbackQueryHandler(
+                    bot.scheduled_handlers.manage_scheduled_photos_handler,
+                    pattern=r"^photo_(del_scheduled_\d+|add_scheduled|finish_scheduled)$",
                 ),
                 MessageHandler(
-                    filters.Regex(r"^🗑️ Видалити всі фото$"),
-                    bot.scheduled_handlers.delete_all_photos_edit,
-                ),
-                MessageHandler(
-                    filters.Regex(r"^➕ Додати нове фото$"),
-                    bot.scheduled_handlers.prompt_add_photo,
-                ),
-                MessageHandler(
-                    filters.Regex(r"^👀 Попередній перегляд фото$"),
-                    bot.scheduled_handlers.preview_edit_photos,
-                ),
-                MessageHandler(
-                    filters.Regex(r"^✅ Завершити редагування фото$"),
-                    bot.scheduled_handlers.finish_edit_photo_selection_handler,
-                ),
-                MessageHandler(
-                    filters.Regex(r"^✅ Завершити вибір фото$"),
-                    bot.scheduled_handlers.finish_edit_photo_selection_handler,
-                ),
-                MessageHandler(
-                    filters.Regex(r"^➡️ Пропустити фото$"),
-                    bot.scheduled_handlers.skip_photo_edit,
+                    filters.PHOTO,
+                    bot.scheduled_handlers.add_photo_to_edit,
                 ),
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
             ],
+            # edit scheduled post buttons
             EDIT_SCHEDULED_BUTTONS: [
+                CallbackQueryHandler(
+                    bot.scheduled_handlers.manage_scheduled_buttons_handler,
+                    pattern=r"^btn_(del_scheduled_\d+|add_scheduled|finish_scheduled)$",
+                ),
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
-                    bot.scheduled_handlers.edit_scheduled_buttons,
+                    bot.scheduled_handlers.add_button_to_edit,
                 ),
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
             ],
             # edit already published posts
             EDIT_PUBLISHED_MENU: [
                 CallbackQueryHandler(
-                    bot.edit_published_menu_handler,
-                    pattern=r"^(ep_edit_text|ep_edit_buttons|ep_cancel)$",
+                    bot.edit_delete_published_handler,
+                    pattern=r"^(ep_edit_text|ep_edit_buttons|ep_back_to_list|ep_cancel)$",
                 ),
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
+                MessageHandler(filters.Regex("^(Створити пост|Відкладені пости|Існуючі пости)$"), bot.main_menu_handler),
             ],
             EDIT_PUBLISHED_TEXT: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND, bot.edit_published_text
                 ),
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
-            ],
-            EDIT_PUBLISHED_BUTTONS: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND, bot.edit_published_buttons
-                ),
-                MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
+                MessageHandler(filters.Regex("^(Створити пост|Відкладені пости|Існуючі пости)$"), bot.main_menu_handler),
             ],
             # delete published posts confirmation
             DELETE_PUBLISHED_CONFIRM: [
@@ -253,11 +272,39 @@ async def main():
                     pattern=r"^(dp_confirm_|dp_cancel)",
                 ),
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
+                MessageHandler(filters.Regex("^(Створити пост|Відкладені пости|Існуючі пости)$"), bot.main_menu_handler),
+            ],
+            # edit published post interface
+            EDIT_PUBLISHED_POST: [
+                CallbackQueryHandler(
+                    bot.edit_delete_published_handler,
+                    pattern=r"^ep_(edit_text|edit_photos|edit_buttons|save_changes|cancel)$",
+                ),
+                MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
+                MessageHandler(filters.Regex("^(Створити пост|Відкладені пости|Існуючі пости)$"), bot.main_menu_handler),
+            ],
+            # view published posts
+            VIEW_PUBLISHED_POSTS: [
+                CallbackQueryHandler(
+                    bot.preview_published_post,
+                    pattern=r"^preview_",
+                ),
+                CallbackQueryHandler(
+                    bot.back_to_posts_list,
+                    pattern=r"^back_to_posts$",
+                ),
+                CallbackQueryHandler(
+                    bot.edit_delete_published_handler,
+                    pattern=r"^(editpublished_|deletepublished_)",
+                ),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, bot.main_menu_handler),
             ],
         },
         fallbacks=[
             CommandHandler("cancel", bot.cancel),
             MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
+            MessageHandler(filters.Regex("^(Створити пост|Відкладені пости|Існуючі пости)$"), bot.main_menu_handler),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, bot.main_menu_handler),
         ],
         allow_reentry=True,
     )

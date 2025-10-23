@@ -203,3 +203,16 @@ def update_published_post(channel_id, message_id, text=None, buttons=None):
         )
     conn.commit()
     conn.close()
+
+
+def get_published_posts_by_user(user_id):
+    """get all published posts by user."""
+    conn = db_connect()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT channel_id, message_id, text, photo_id, buttons FROM published_posts WHERE user_id = ? ORDER BY id DESC",
+        (user_id,)
+    )
+    posts = cursor.fetchall()
+    conn.close()
+    return posts

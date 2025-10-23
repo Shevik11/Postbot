@@ -10,7 +10,7 @@ from telegram import (
 )
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
-from config import HARDCODED_CHANNELS, MANAGE_NEW_BUTTONS
+from config import HARDCODED_CHANNELS, MANAGE_NEW_BUTTONS, MANAGE_NEW_PHOTOS, EDIT_BUTTONS_FROM_SCHEDULE
 from database import (
     delete_scheduled_post,
     get_job_id_by_post_id,
@@ -28,6 +28,8 @@ from utils import (
     create_buttons_markup,
     create_edit_menu_keyboard,
     create_main_keyboard,
+    create_photo_management_keyboard,
+    photo_selection_keyboard,
     create_schedule_keyboard,
     detect_parse_mode,
     entities_to_html,
@@ -161,6 +163,7 @@ class PostHandlers:
                     sent_message = sent_messages[0]
                     if buttons_markup:
                         button_text = "🔗"
+                        buttons = post_data.get("buttons", [])
                         for i, button in enumerate(buttons):
                             button_text += f" [{i+1}]"
                         await bot.send_message(
@@ -215,6 +218,8 @@ class PostHandlers:
                 user_id,
                 f"❌ Не вдалося надіслати пост у канал @{clean_channel_id}. Перевірте, чи бот є адміністратором з правами на публікацію.",
             )
+            # Re-raise the exception so the caller knows it failed
+            raise
 
     # --- CREATE POST ---
     async def create_post_start(
@@ -242,13 +247,18 @@ class PostHandlers:
 
         context.user_data["new_post"]["text"] = text
 
+        # Go directly to photo management interface
+        context.user_data["new_post"].setdefault("photos", [])
+        photos = context.user_data["new_post"]["photos"]
+        keyboard = create_photo_management_keyboard(photos, "new")
         await update.message.reply_text(
-            "Крок 2: Надішліть одне або кілька фото. Коли закінчите, натисніть 'Завершити вибір фото'. Або натисніть 'Пропустити фото', щоб створити пост тільки з текстом.",
-            reply_markup=photo_selection_keyboard(),
+            "📷 *Управління фотографіями:*",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
         )
-        from config import ADD_PHOTO
+        from config import MANAGE_NEW_PHOTOS
 
-        return ADD_PHOTO
+        return MANAGE_NEW_PHOTOS
 
     async def add_photo_handler(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -267,6 +277,82 @@ class PostHandlers:
 
         return ADD_PHOTO
 
+    async def edit_text_from_schedule_handler(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Handle text editing from schedule menu."""
+        if "new_post" not in context.user_data:
+            context.user_data["new_post"] = {}
+
+        text = update.message.text
+
+        # Convert entities to HTML tags to preserve formatting
+        if update.message.entities:
+            text = entities_to_html(text, update.message.entities)
+
+        context.user_data["new_post"]["text"] = text
+
+        # Return to schedule menu
+        await self.preview_post(update, context, "new_post")
+        await update.message.reply_text(
+            "Пост готовий. Надіслати зараз чи запланувати?",
+            reply_markup=create_schedule_keyboard(),
+        )
+        from config import SCHEDULE_TIME
+        return SCHEDULE_TIME
+
+    async def edit_photo_from_schedule(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Edit photos from schedule menu (show management interface)."""
+        if "new_post" not in context.user_data:
+            context.user_data["new_post"] = {}
+        
+        # Set flag to indicate we're editing from schedule menu
+        context.user_data["editing_from_schedule"] = True
+        
+        photos = context.user_data["new_post"].get("photos", [])
+
+        if not photos:
+            await update.callback_query.message.reply_text(
+                "📸 *Редагування фото*\n\n"
+                "У цьому пості немає фото. Надішліть фото або натисніть 'Пропустити фото'.",
+                reply_markup=photo_selection_keyboard(),
+                parse_mode="Markdown",
+            )
+        else:
+            await update.callback_query.message.reply_text(
+                f"📸 *Редагування фото*\n\n",
+                reply_markup=create_photo_management_keyboard(photos),
+                parse_mode="Markdown",
+            )
+        
+        from config import EDIT_PHOTO_FROM_SCHEDULE
+        return EDIT_PHOTO_FROM_SCHEDULE
+
+    async def edit_buttons_from_schedule(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Edit buttons from the schedule menu using the button management interface"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get current buttons from new_post
+        buttons = context.user_data.get("new_post", {}).get("buttons", [])
+        
+        # Set flag to return to schedule menu after editing
+        context.user_data["editing_from_schedule"] = True
+        
+        # Show button management interface
+        keyboard = create_button_management_keyboard(buttons, "new")
+        
+        await query.message.reply_text(
+            f"🔘 *Редагування кнопок*\n\n",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+        
+        from config import EDIT_BUTTONS_FROM_SCHEDULE
+        return EDIT_BUTTONS_FROM_SCHEDULE
+
     async def finish_photo_selection_handler(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
@@ -274,15 +360,17 @@ class PostHandlers:
             context.user_data["new_post"] = {}
         # ensure photos key exists
         context.user_data["new_post"].setdefault("photos", [])
+        
+        # Show photo management interface
+        photos = context.user_data["new_post"]["photos"]
+        keyboard = create_photo_management_keyboard(photos, "new")
         await update.message.reply_text(
-            "Крок 3: Додайте кнопки з посиланнями.\n"
-            "Надішліть їх у форматі: `Назва кнопки - https://example.com`\n"
-            "Кожна нова кнопка з нового рядка. Якщо кнопки не потрібні, натисніть 'Пропустити'.",
-            reply_markup=skip_keyboard(),
+            "📷 *Управління фотографіями:*",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
         )
-        from config import ADD_BUTTONS
-
-        return ADD_BUTTONS
+        from config import MANAGE_NEW_PHOTOS
+        return MANAGE_NEW_PHOTOS
 
     async def add_buttons_handler(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -295,14 +383,20 @@ class PostHandlers:
         buttons = context.user_data["new_post"]["buttons"]
 
         keyboard = create_button_management_keyboard(buttons, "new")
-        await update.message.reply_text(
-            "📋 *Управління кнопками:*\n\n"
-            "Натисніть ❌ щоб видалити кнопку\n"
-            "Натисніть ➕ щоб додати нову кнопку\n"
-            "Натисніть ✅ коли закінчите",
-            reply_markup=keyboard,
-            parse_mode="Markdown",
-        )
+        
+        # Handle both message and callback query
+        if update.message:
+            await update.message.reply_text(
+                "📋 *Управління кнопками:*",
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+            )
+        elif update.callback_query:
+            await update.callback_query.message.reply_text(
+                "📋 *Управління кнопками:*",
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+            )
         return MANAGE_NEW_BUTTONS
 
     async def skip_buttons_handler(
@@ -321,15 +415,17 @@ class PostHandlers:
             context.user_data["new_post"] = {}
 
         context.user_data["new_post"]["photos"] = []
+        
+        # Show photo management interface
+        photos = context.user_data["new_post"]["photos"]
+        keyboard = create_photo_management_keyboard(photos, "new")
         await update.message.reply_text(
-            "Крок 3: Додайте кнопки з посиланнями.\n"
-            "Надішліть їх у форматі: `Назва кнопки - https://example.com`\n"
-            "Кожна нова кнопка з нового рядка. Якщо кнопки не потрібні, натисніть 'Пропустити'.",
-            reply_markup=skip_keyboard(),
+            "📷 *Управління фотографіями:*",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
         )
-        from config import ADD_BUTTONS
-
-        return ADD_BUTTONS
+        from config import MANAGE_NEW_PHOTOS
+        return MANAGE_NEW_PHOTOS
 
     # --- PREVIEW AND SCHEDULE ---
     async def schedule_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -347,6 +443,8 @@ class PostHandlers:
     ):
         query = update.callback_query
         await query.answer()
+        print(f"Schedule time handler received: {query.data}")
+        
         if query.data == "send_now":
             return await self.select_channel_menu(update, context)
         elif query.data == "schedule":
@@ -355,6 +453,17 @@ class PostHandlers:
             from config import SCHEDULE_TIME
 
             return SCHEDULE_TIME
+        elif query.data == "edit_text":
+            print("Going to edit text")
+            await query.message.reply_text("✏️ Надішліть новий текст:")
+            from config import EDIT_TEXT_FROM_SCHEDULE
+            return EDIT_TEXT_FROM_SCHEDULE
+        elif query.data == "edit_photo":
+            print("Going to edit photo")
+            return await self.edit_photo_from_schedule(update, context)
+        elif query.data == "edit_buttons":
+            print("Going to edit buttons")
+            return await self.edit_buttons_from_schedule(update, context)
 
     async def set_schedule_time(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -440,7 +549,16 @@ class PostHandlers:
         elif data == "btn_finish_new":
             # finish and continue to schedule
             await query.message.reply_text("✅ Кнопки налаштовано!")
-            return await self.schedule_menu_from_callback(update, context)
+            
+            # Check if we're editing from schedule menu
+            if context.user_data.get("editing_from_schedule"):
+                # Clear the flag and return to schedule menu
+                context.user_data.pop("editing_from_schedule", None)
+                from config import SCHEDULE_TIME
+                return SCHEDULE_TIME
+            else:
+                # Normal flow - continue to schedule menu
+                return await self.schedule_menu_from_callback(update, context)
 
         return MANAGE_NEW_BUTTONS
 
@@ -468,10 +586,7 @@ class PostHandlers:
             # show updated keyboard
             keyboard = create_button_management_keyboard(current_buttons, "new")
             await update.message.reply_text(
-                "📋 *Управління кнопками:*\n\n"
-                "Натисніть ❌ щоб видалити кнопку\n"
-                "Натисніть ➕ щоб додати нову кнопку\n"
-                "Натисніть ✅ коли закінчите",
+                "📋 *Управління кнопками:*",
                 reply_markup=keyboard,
                 parse_mode="Markdown",
             )
@@ -557,12 +672,18 @@ class PostHandlers:
             )
         else:
             # immediate send
-            await self.send_post_job(
-                channel_id, post_data, update.effective_user.id, context
-            )
-            await query.edit_message_text(
-                f"✅ Пост успішно надіслано в канал {channel_id}."
-            )
+            try:
+                await self.send_post_job(
+                    channel_id, post_data, update.effective_user.id, context
+                )
+                await query.edit_message_text(
+                    f"✅ Пост успішно надіслано в канал {channel_id}."
+                )
+            except Exception as e:
+                await query.edit_message_text(
+                    f"❌ Не вдалося надіслати пост у канал {channel_id}. Перевірте, чи бот є адміністратором з правами на публікацію."
+                )
+                return
 
         context.user_data.clear()
         # send new message with main menu
@@ -575,3 +696,86 @@ class PostHandlers:
         from config import MAIN_MENU
 
         return MAIN_MENU
+
+    async def manage_photos_handler(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Handle photo management for new posts."""
+        query = update.callback_query
+        await query.answer()
+
+        data = query.data
+        photos = context.user_data.get("new_post", {}).get("photos", [])
+
+        if data.startswith("photo_del_new_"):
+            # delete photo
+            idx = int(data.split("_")[-1])
+            if 0 <= idx < len(photos):
+                deleted_photo = photos.pop(idx)
+                context.user_data["new_post"]["photos"] = photos
+                await query.answer(f"Видалено фото {idx + 1}")
+
+            # refresh keyboard
+            keyboard = create_photo_management_keyboard(photos, "new")
+            await query.edit_message_reply_markup(reply_markup=keyboard)
+            return MANAGE_NEW_PHOTOS
+
+        elif data == "photo_add_new":
+            # prompt to add new photo
+            await query.message.reply_text(
+                "📷 Надішліть фото для додавання до поста."
+            )
+            context.user_data["adding_photo_to"] = "new_post"
+            return MANAGE_NEW_PHOTOS
+
+        elif data == "photo_finish_new":
+            # finish and continue to buttons or return to schedule menu
+            await query.message.reply_text("✅ Фото налаштовано!")
+            
+            # Check if we're editing from schedule menu
+            if context.user_data.get("editing_from_schedule"):
+                # Return to schedule menu
+                await self.preview_post(update, context, "new_post")
+                await query.message.reply_text(
+                    "Пост готовий. Надіслати зараз чи запланувати?",
+                    reply_markup=create_schedule_keyboard(),
+                )
+                from config import SCHEDULE_TIME
+                return SCHEDULE_TIME
+            else:
+                # Continue to buttons (normal flow)
+                return await self.add_buttons_handler(update, context)
+
+        return MANAGE_NEW_PHOTOS
+
+    async def add_single_photo_handler(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Add a single photo when in photo management mode."""
+        adding_to = context.user_data.get("adding_photo_to")
+        if adding_to != "new_post":
+            # Not for new posts, skip this handler
+            return None
+
+        try:
+            new_file_id = update.message.photo[-1].file_id
+            current_photos = context.user_data.get("new_post", {}).get("photos", [])
+            current_photos.append(new_file_id)
+            context.user_data["new_post"]["photos"] = current_photos
+            await update.message.reply_text("✅ Фото додано!")
+
+            context.user_data.pop("adding_photo_to", None)
+
+            # show updated keyboard
+            keyboard = create_photo_management_keyboard(current_photos, "new")
+            await update.message.reply_text(
+                "📷 *Управління фотографіями:*",
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ Помилка при додаванні фото: {e}"
+            )
+
+        return MANAGE_NEW_PHOTOS

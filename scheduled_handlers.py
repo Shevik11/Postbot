@@ -10,13 +10,12 @@ from telegram import (
 from telegram.ext import ContextTypes
 
 from config import (
-    EDIT_SCHEDULED_BUTTONS,
-    EDIT_SCHEDULED_PHOTO,
     EDIT_SCHEDULED_POST,
     EDIT_SCHEDULED_TEXT,
+    EDIT_SCHEDULED_PHOTO,
+    EDIT_SCHEDULED_BUTTONS,
     EDIT_SCHEDULED_TIME,
     MAIN_MENU,
-    MANAGE_EDIT_BUTTONS,
     VIEW_SCHEDULED,
 )
 from database import (
@@ -32,6 +31,7 @@ from utils import (
     cancel_keyboard,
     create_button_management_keyboard,
     create_edit_menu_keyboard,
+    create_photo_management_keyboard,
     create_main_keyboard,
     entities_to_html,
     parse_buttons,
@@ -223,14 +223,9 @@ class ScheduledPostHandlers:
             await query.edit_message_text("✏️ Send new text for post:")
             return EDIT_SCHEDULED_TEXT
         elif query.data == "edit_photo":
-            editing_post = context.user_data.get("editing_post", {})
-            photos = editing_post.get("photos", [])
-            await query.message.reply_text(
-                "📸 Управління фото:", reply_markup=photo_management_keyboard(photos)
-            )
-            return EDIT_SCHEDULED_PHOTO
+            return await self.edit_scheduled_photo(update, context)
         elif query.data == "edit_buttons":
-            return await self.edit_scheduled_buttons_from_callback(update, context)
+            return await self.edit_scheduled_buttons(update, context)
         elif query.data == "edit_time":
             cal = create_calendar()
             await query.message.reply_text(
@@ -269,27 +264,165 @@ class ScheduledPostHandlers:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
         """edit scheduled post photos (show management interface)."""
+        query = update.callback_query
+        await query.answer()
+        
         editing_post = context.user_data.get("editing_post", {})
         photos = editing_post.get("photos") or []
 
         if not photos:
-            await update.message.reply_text(
+            await query.message.reply_text(
                 "📸 *Редагування фото*\n\n"
                 "У цьому пості немає фото. Надішліть фото або натисніть 'Пропустити фото'.",
                 reply_markup=photo_selection_keyboard(),
                 parse_mode="Markdown",
             )
         else:
-            await update.message.reply_text(
-                f"📸 *Редагування фото*\n\n"
-                f"Поточні фото: {len(photos)} шт.\n\n"
-                f"Натисніть ❌ щоб видалити фото\n"
-                f"Натисніть ➕ щоб додати нове фото\n"
-                f"Натисніть ✅ коли закінчите",
-                reply_markup=photo_management_keyboard(photos),
+            await query.message.reply_text(
+                f"📸 *Редагування фото*\n\n",
+                reply_markup=create_photo_management_keyboard(photos, "scheduled"),
                 parse_mode="Markdown",
             )
         return EDIT_SCHEDULED_PHOTO
+
+    async def edit_scheduled_buttons(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """edit scheduled post buttons (show management interface)."""
+        query = update.callback_query
+        await query.answer()
+        
+        editing_post = context.user_data.get("editing_post", {})
+        buttons = editing_post.get("buttons", [])
+
+        # Show button management interface
+        keyboard = create_button_management_keyboard(buttons, "scheduled")
+        
+        await query.message.reply_text(
+            f"🔘 *Редагування кнопок*\n\n",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+        
+        return EDIT_SCHEDULED_BUTTONS
+
+    async def manage_scheduled_photos_handler(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Handle photo management for scheduled posts."""
+        query = update.callback_query
+        await query.answer()
+
+        data = query.data
+        editing_post = context.user_data.get("editing_post", {})
+        photos = editing_post.get("photos", [])
+
+        if data.startswith("photo_del_scheduled_"):
+            # delete photo
+            idx = int(data.split("_")[-1])
+            if 0 <= idx < len(photos):
+                deleted_photo = photos.pop(idx)
+                editing_post["photos"] = photos
+                context.user_data["editing_post"] = editing_post
+                await query.answer(f"Видалено фото {idx + 1}")
+
+            # refresh keyboard
+            keyboard = create_photo_management_keyboard(photos, "scheduled")
+            await query.edit_message_reply_markup(reply_markup=keyboard)
+            return EDIT_SCHEDULED_PHOTO
+
+        elif data == "photo_add_scheduled":
+            # prompt to add new photo
+            await query.message.reply_text(
+                "📷 Надішліть нове фото:",
+            )
+            return EDIT_SCHEDULED_PHOTO
+
+        elif data == "photo_finish_scheduled":
+            # finish and return to edit menu
+            await query.message.reply_text("✅ Фото оновлено!")
+            return await self.show_edit_menu(update, context)
+
+        return EDIT_SCHEDULED_PHOTO
+
+    async def manage_scheduled_buttons_handler(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Handle button management for scheduled posts."""
+        query = update.callback_query
+        await query.answer()
+
+        data = query.data
+        editing_post = context.user_data.get("editing_post", {})
+        buttons = editing_post.get("buttons", [])
+
+        if data.startswith("btn_del_scheduled_"):
+            # delete button
+            idx = int(data.split("_")[-1])
+            if 0 <= idx < len(buttons):
+                deleted_btn = buttons.pop(idx)
+                editing_post["buttons"] = buttons
+                context.user_data["editing_post"] = editing_post
+                await query.answer(f"Видалено: {deleted_btn['text']}")
+
+            # refresh keyboard
+            keyboard = create_button_management_keyboard(buttons, "scheduled")
+            await query.edit_message_reply_markup(reply_markup=keyboard)
+            return EDIT_SCHEDULED_BUTTONS
+
+        elif data == "btn_add_scheduled":
+            # prompt to add new button
+            await query.message.reply_text(
+                "Надішліть кнопку у форматі: `Назва кнопки - https://example.com`",
+                parse_mode="Markdown",
+            )
+            context.user_data["adding_button_to"] = "editing_post"
+            return EDIT_SCHEDULED_BUTTONS
+
+        elif data == "btn_finish_scheduled":
+            # finish and return to edit menu
+            await query.message.reply_text("✅ Кнопки оновлено!")
+            return await self.show_edit_menu(update, context)
+
+        return EDIT_SCHEDULED_BUTTONS
+
+    async def add_button_to_edit(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Add a single button when editing scheduled post."""
+        adding_to = context.user_data.get("adding_button_to")
+        if adding_to != "editing_post":
+            # Not for editing post, skip this handler
+            return None
+
+        try:
+            buttons = parse_buttons(update.message.text)
+            if buttons:
+                current_buttons = context.user_data.get(adding_to, {}).get(
+                    "buttons", []
+                )
+                current_buttons.extend(buttons)
+                context.user_data[adding_to]["buttons"] = current_buttons
+                await update.message.reply_text("✅ Кнопку додано!")
+
+                # Show updated button management interface
+                updated_buttons = context.user_data[adding_to]["buttons"]
+                keyboard = create_button_management_keyboard(updated_buttons, "scheduled")
+                
+                await update.message.reply_text(
+                    f"🔘 *Редагування кнопок*\n\n",
+                    reply_markup=keyboard,
+                    parse_mode="Markdown",
+                )
+
+            context.user_data.pop("adding_button_to", None)
+
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ Помилка при додаванні кнопки: {str(e)}"
+            )
+
+        return EDIT_SCHEDULED_BUTTONS
 
     async def add_photo_to_edit(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -302,10 +435,7 @@ class ScheduledPostHandlers:
         context.user_data["editing_post"] = editing_post
 
         await update.message.reply_text(
-            f"✅ Фото додано! Загалом фото: {len(photos)} шт.\n\n"
-            f"Натисніть ❌ щоб видалити фото\n"
-            f"Натисніть ➕ щоб додати нове фото\n"
-            f"Натисніть ✅ коли закінчите",
+            f"✅ Фото додано!",
             reply_markup=photo_management_keyboard(photos),
         )
         return EDIT_SCHEDULED_PHOTO
@@ -327,10 +457,7 @@ class ScheduledPostHandlers:
             context.user_data["editing_post"] = editing_post
 
             await update.message.reply_text(
-                f"✅ Фото {photo_num + 1} видалено! Залишилося фото: {len(photos)} шт.\n\n"
-                f"Натисніть ❌ щоб видалити фото\n"
-                f"Натисніть ➕ щоб додати нове фото\n"
-                f"Натисніть ✅ коли закінчите",
+                f"✅ Фото видалено!",
                 reply_markup=photo_management_keyboard(photos),
             )
         else:
@@ -418,116 +545,9 @@ class ScheduledPostHandlers:
         await update.message.reply_text("✅ Фото оновлено!")
         return await self.show_edit_menu(update, context)
 
-    async def edit_scheduled_buttons(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ):
-        """Show button management interface for scheduled posts (from message)."""
-        editing_post = context.user_data.get("editing_post", {})
-        buttons = editing_post.get("buttons", [])
 
-        keyboard = create_button_management_keyboard(buttons, "edit")
-        await update.message.reply_text(
-            "📋 *Управління кнопками:*\n\n"
-            "Натисніть ❌ щоб видалити кнопку\n"
-            "Натисніть ➕ щоб додати нову кнопку\n"
-            "Натисніть ✅ коли закінчите",
-            reply_markup=keyboard,
-            parse_mode="Markdown",
-        )
-        return MANAGE_EDIT_BUTTONS
 
-    async def edit_scheduled_buttons_from_callback(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ):
-        """Show button management interface for scheduled posts (from callback)."""
-        editing_post = context.user_data.get("editing_post", {})
-        buttons = editing_post.get("buttons", [])
 
-        keyboard = create_button_management_keyboard(buttons, "edit")
-        await update.callback_query.message.reply_text(
-            "📋 *Управління кнопками:*\n\n"
-            "Натисніть ❌ щоб видалити кнопку\n"
-            "Натисніть ➕ щоб додати нову кнопку\n"
-            "Натисніть ✅ коли закінчите",
-            reply_markup=keyboard,
-            parse_mode="Markdown",
-        )
-        return MANAGE_EDIT_BUTTONS
-
-    async def manage_edit_buttons_handler(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ):
-        """Handle button management for editing scheduled posts."""
-        query = update.callback_query
-        await query.answer()
-
-        data = query.data
-        buttons = context.user_data.get("editing_post", {}).get("buttons", [])
-
-        if data.startswith("btn_del_edit_"):
-            # delete button
-            idx = int(data.split("_")[-1])
-            if 0 <= idx < len(buttons):
-                deleted_btn = buttons.pop(idx)
-                context.user_data["editing_post"]["buttons"] = buttons
-                await query.answer(f"Видалено: {deleted_btn['text']}")
-
-            # refresh keyboard
-            keyboard = create_button_management_keyboard(buttons, "edit")
-            await query.edit_message_reply_markup(reply_markup=keyboard)
-            return MANAGE_EDIT_BUTTONS
-
-        elif data == "btn_add_edit":
-            # prompt to add new button
-            await query.message.reply_text(
-                "Надішліть кнопку у форматі: `Назва кнопки - https://example.com`",
-                parse_mode="Markdown",
-            )
-            context.user_data["adding_button_to"] = "editing_post"
-            return MANAGE_EDIT_BUTTONS
-
-        elif data == "btn_finish_edit":
-            # finish and return to edit menu
-            await query.message.reply_text("✅ Кнопки оновлено!")
-            return await self.show_edit_menu(update, context)
-
-        return MANAGE_EDIT_BUTTONS
-
-    async def add_single_button_to_edit_handler(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ):
-        """Add a single button when editing scheduled post."""
-        adding_to = context.user_data.get("adding_button_to")
-        if adding_to != "editing_post":
-            # Not for editing posts, skip this handler
-            return None
-
-        try:
-            buttons = parse_buttons(update.message.text)
-            if buttons:
-                current_buttons = context.user_data.get("editing_post", {}).get(
-                    "buttons", []
-                )
-                current_buttons.extend(buttons)
-                context.user_data["editing_post"]["buttons"] = current_buttons
-                await update.message.reply_text("✅ Кнопку додано!")
-
-            context.user_data.pop("adding_button_to", None)
-
-            keyboard = create_button_management_keyboard(current_buttons, "edit")
-            await update.message.reply_text(
-                "📋 *Управління кнопками:*\n\n"
-                "Натисніть ❌ щоб видалити кнопку\n"
-                "Натисніть ➕ щоб додати нову кнопку\n"
-                "Натисніть ✅ коли закінчите",
-                reply_markup=keyboard,
-                parse_mode="Markdown",
-            )
-        except ValueError as e:
-            await update.message.reply_text(
-                f"❌ {e}\n\nСпробуйте ще раз у форматі: `Назва - URL`",
-                parse_mode="Markdown",
-            )
 
         return MANAGE_EDIT_BUTTONS
 

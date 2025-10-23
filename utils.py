@@ -249,6 +249,7 @@ def create_main_keyboard():
     keyboard = [
         [KeyboardButton("📝 Створити пост")],
         [KeyboardButton("📅 Відкладені пости")],
+        [KeyboardButton("📋 Існуючі пости")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -257,8 +258,8 @@ def create_edit_menu_keyboard():
     """create edit menu keyboard for post."""
     keyboard = [
         [InlineKeyboardButton("✏️ Редагувати текст", callback_data="edit_text")],
-        [InlineKeyboardButton("✏️ Редагувати фото", callback_data="edit_photo")],
-        [InlineKeyboardButton("✏️ Редагувати кнопки", callback_data="edit_buttons")],
+        [InlineKeyboardButton("📷 Редагувати фото", callback_data="edit_photo")],
+        [InlineKeyboardButton("🔘 Редагувати кнопки", callback_data="edit_buttons")],
         [InlineKeyboardButton("✏️ Змінити час", callback_data="edit_time")],
         [InlineKeyboardButton("👀 Попередній перегляд", callback_data="preview_edit")],
         [InlineKeyboardButton("✅ Зберегти зміни", callback_data="save_edit")],
@@ -272,6 +273,9 @@ def create_schedule_keyboard():
     keyboard = [
         [InlineKeyboardButton("✅ Надіслати зараз", callback_data="send_now")],
         [InlineKeyboardButton("🕓 Відкласти публікацію", callback_data="schedule")],
+        [InlineKeyboardButton("✏️ Редагувати текст", callback_data="edit_text")],
+        [InlineKeyboardButton("📷 Редагувати фото", callback_data="edit_photo")],
+        [InlineKeyboardButton("🔘 Редагувати кнопки", callback_data="edit_buttons")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -296,6 +300,31 @@ def create_button_management_keyboard(buttons, context="new"):
     )
     keyboard.append(
         [InlineKeyboardButton("✅ Завершити", callback_data=f"btn_finish_{context}")]
+    )
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def create_photo_management_keyboard(photos, context="new"):
+    """create keyboard for managing photos (add/delete)."""
+    keyboard = []
+
+    # show existing photos with delete option
+    for idx, photo in enumerate(photos):
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"❌ Фото {idx + 1}", callback_data=f"photo_del_{context}_{idx}"
+                )
+            ]
+        )
+
+    # add new photo and finish options
+    keyboard.append(
+        [InlineKeyboardButton("➕ Додати фото", callback_data=f"photo_add_{context}")]
+    )
+    keyboard.append(
+        [InlineKeyboardButton("✅ Завершити", callback_data=f"photo_finish_{context}")]
     )
 
     return InlineKeyboardMarkup(keyboard)
