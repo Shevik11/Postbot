@@ -30,6 +30,7 @@ def db_connect():
             user_id INTEGER NOT NULL,
             text TEXT,
             photo_id TEXT,
+            media_type TEXT,
             buttons TEXT, 
             publish_time DATETIME NOT NULL,
             channel_id TEXT NOT NULL,
@@ -48,6 +49,7 @@ def db_connect():
             message_id INTEGER NOT NULL,
             text TEXT,
             photo_id TEXT,
+            media_type TEXT,
             buttons TEXT
         )
     """
@@ -75,7 +77,7 @@ def get_scheduled_post_by_id(post_id):
     conn = db_connect()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT text, photo_id, buttons, publish_time, channel_id FROM scheduled_posts WHERE id = ?",
+        "SELECT text, photo_id, buttons, publish_time, channel_id, layout FROM scheduled_posts WHERE id = ?",
         (post_id,),
     )
     post_data = cursor.fetchone()
@@ -94,7 +96,7 @@ def get_job_id_by_post_id(post_id):
 
 
 def save_scheduled_post(
-    user_id, text, photo_id, buttons, publish_time, channel_id, job_id
+    user_id, text, photo_id, media_type, buttons, publish_time, channel_id, job_id, layout="photo_top"
 ):
     """save scheduled post to db."""
     import json
@@ -102,32 +104,35 @@ def save_scheduled_post(
     conn = db_connect()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO scheduled_posts (user_id, text, photo_id, buttons, publish_time, channel_id, job_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO scheduled_posts (user_id, text, photo_id, media_type, buttons, publish_time, channel_id, job_id, layout) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             user_id,
             text,
             photo_id,
+            media_type,
             json.dumps(buttons) if buttons else None,
             publish_time,
             channel_id,
             job_id,
+            layout,
         ),
     )
     conn.commit()
     conn.close()
 
 
-def update_scheduled_post(post_id, text, photo_id, buttons, publish_time, job_id):
+def update_scheduled_post(post_id, text, photo_id, media_type, buttons, publish_time, job_id):
     """update scheduled post in db."""
     import json
 
     conn = db_connect()
     cursor = conn.cursor()
     cursor.execute(
-        "UPDATE scheduled_posts SET text=?, photo_id=?, buttons=?, publish_time=?, job_id=? WHERE id=?",
+        "UPDATE scheduled_posts SET text=?, photo_id=?, media_type=?, buttons=?, publish_time=?, job_id=? WHERE id=?",
         (
             text,
             photo_id,
+            media_type,
             json.dumps(buttons) if buttons else None,
             publish_time,
             job_id,
@@ -148,18 +153,19 @@ def delete_scheduled_post(post_id):
 
 
 # --- Published posts helpers ---
-def save_published_post(user_id, channel_id, message_id, text, photo_id, buttons):
+def save_published_post(user_id, channel_id, message_id, text, photo_id, media_type, buttons):
     """save a published post to db."""
     conn = db_connect()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO published_posts (user_id, channel_id, message_id, text, photo_id, buttons) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO published_posts (user_id, channel_id, message_id, text, photo_id, media_type, buttons) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             user_id,
             channel_id,
             message_id,
             text,
             photo_id,
+            media_type,
             str(buttons) if buttons is not None else None,
         ),
     )
@@ -172,12 +178,12 @@ def get_published_post(channel_id, message_id):
     conn = db_connect()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT user_id, text, photo_id, buttons FROM published_posts WHERE channel_id = ? AND message_id = ?",
+        "SELECT user_id, text, photo_id, media_type, buttons FROM published_posts WHERE channel_id = ? AND message_id = ?",
         (channel_id, message_id),
     )
     row = cursor.fetchone()
     conn.close()
-    return row  # (user_id, text, photo_id, buttons)
+    return row  # (user_id, text, photo_id, media_type, buttons)
 
 
 def update_published_post(channel_id, message_id, text=None, buttons=None):
@@ -210,7 +216,7 @@ def get_published_posts_by_user(user_id):
     conn = db_connect()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT channel_id, message_id, text, photo_id, buttons FROM published_posts WHERE user_id = ? ORDER BY id DESC",
+        "SELECT channel_id, message_id, text, photo_id, media_type, buttons FROM published_posts WHERE user_id = ? ORDER BY id DESC",
         (user_id,)
     )
     posts = cursor.fetchall()

@@ -82,7 +82,7 @@ class ChannelBot:
                     "❌ Опублікований пост не знайдено в базі."
                 )
                 return ConversationHandler.END
-            user_id, text, photo_id, buttons = row
+            user_id, text, photo_id, media_type, buttons = row
             photos = []
             if photo_id:
                 try:
@@ -703,7 +703,7 @@ class ChannelBot:
             )
         
         for post in posts:
-            channel_id, message_id, text, photo_id, buttons = post
+            channel_id, message_id, text, photo_id, media_type, buttons = post
             
             # Parse buttons if they exist
             buttons_list = []
@@ -772,7 +772,7 @@ class ChannelBot:
             await query.edit_message_text("❌ Пост не знайдено.")
             return VIEW_PUBLISHED_POSTS
         
-        user_id, text, photo_id, buttons = post_data
+        user_id, text, photo_id, media_type, buttons = post_data
         
         # Parse buttons if they exist
         buttons_list = []
@@ -787,47 +787,132 @@ class ChannelBot:
         if photo_id:
             try:
                 import ast
-                photos = ast.literal_eval(photo_id)
+                # Try to parse as new media format first
+                media_list = ast.literal_eval(photo_id)
+                if isinstance(media_list, list) and len(media_list) > 0 and isinstance(media_list[0], dict):
+                    # New media format
+                    if len(media_list) == 1:
+                        media_item = media_list[0]
+                        if media_item['type'] == 'photo':
+                            await query.message.reply_photo(
+                                photo=media_item['file_id'],
+                                caption=text or "📷 Фото",
+                                reply_markup=create_buttons_markup(buttons_list),
+                                parse_mode="HTML" if text else None,
+                            )
+                        elif media_item['type'] == 'video':
+                            await query.message.reply_video(
+                                video=media_item['file_id'],
+                                caption=text or "🎥 Відео",
+                                reply_markup=create_buttons_markup(buttons_list),
+                                parse_mode="HTML" if text else None,
+                            )
+                        elif media_item['type'] == 'document':
+                            await query.message.reply_document(
+                                document=media_item['file_id'],
+                                caption=text or "📄 Файл",
+                                reply_markup=create_buttons_markup(buttons_list),
+                                parse_mode="HTML" if text else None,
+                            )
+                    else:
+                        # Multiple media - send as media group (only photos supported in media groups)
+                        photo_media = [m for m in media_list if m['type'] == 'photo']
+                        other_media = [m for m in media_list if m['type'] != 'photo']
+                        
+                        if photo_media:
+                            from telegram import InputMediaPhoto
+                            media = []
+                            for idx, media_item in enumerate(photo_media):
+                                if idx == 0:
+                                    media.append(InputMediaPhoto(
+                                        media=media_item['file_id'], 
+                                        caption=text or "📷 Фото",
+                                        parse_mode="HTML" if text else None
+                                    ))
+                                else:
+                                    media.append(InputMediaPhoto(media=media_item['file_id']))
+                            
+                            sent_messages = await context.bot.send_media_group(
+                                chat_id=query.message.chat_id,
+                                media=media
+                            )
+                        
+                        # Send other media types separately
+                        for media_item in other_media:
+                            if media_item['type'] == 'video':
+                                await context.bot.send_video(
+                                    chat_id=query.message.chat_id,
+                                    video=media_item['file_id'],
+                                    caption=text if not photo_media else None,
+                                    parse_mode="HTML" if text and not photo_media else None,
+                                )
+                            elif media_item['type'] == 'document':
+                                await context.bot.send_document(
+                                    chat_id=query.message.chat_id,
+                                    document=media_item['file_id'],
+                                    caption=text if not photo_media else None,
+                                    parse_mode="HTML" if text and not photo_media else None,
+                                )
+                        
+                        # Send buttons separately for media group
+                        if buttons_list:
+                            button_text = "🔗"
+                            for i, button in enumerate(buttons_list):
+                                button_text += f" [{i+1}]"
+                            await context.bot.send_message(
+                                chat_id=query.message.chat_id,
+                                text=button_text,
+                                reply_markup=create_buttons_markup(buttons_list),
+                            )
+                else:
+                    # Old photos format
+                    photos = media_list if isinstance(media_list, list) else [photo_id]
+                    
+                    if len(photos) == 1:
+                        # Single photo
+                        await query.message.reply_photo(
+                            photo=photos[0],
+                            caption=text or "📷 Фото",
+                            reply_markup=create_buttons_markup(buttons_list),
+                            parse_mode="HTML" if text else None,
+                        )
+                    else:
+                        # Multiple photos - send as media group
+                        from telegram import InputMediaPhoto
+                        media = []
+                        for idx, fid in enumerate(photos):
+                            if idx == 0:
+                                media.append(InputMediaPhoto(
+                                    media=fid, 
+                                    caption=text or "📷 Фото",
+                                    parse_mode="HTML" if text else None
+                                ))
+                            else:
+                                media.append(InputMediaPhoto(media=fid))
+                        
+                        sent_messages = await context.bot.send_media_group(
+                            chat_id=query.message.chat_id,
+                            media=media
+                        )
+                        
+                        # Send buttons separately for media group
+                        if buttons_list:
+                            button_text = "🔗"
+                            for i, button in enumerate(buttons_list):
+                                button_text += f" [{i+1}]"
+                            await context.bot.send_message(
+                                chat_id=query.message.chat_id,
+                                text=button_text,
+                                reply_markup=create_buttons_markup(buttons_list),
+                            )
             except Exception:
-                photos = [photo_id]
-            
-            if len(photos) == 1:
-                # Single photo
+                # Fallback to simple photo
                 await query.message.reply_photo(
-                    photo=photos[0],
+                    photo=photo_id,
                     caption=text or "📷 Фото",
                     reply_markup=create_buttons_markup(buttons_list),
                     parse_mode="HTML" if text else None,
                 )
-            else:
-                # Multiple photos - send as media group
-                from telegram import InputMediaPhoto
-                media = []
-                for idx, fid in enumerate(photos):
-                    if idx == 0:
-                        media.append(InputMediaPhoto(
-                            media=fid, 
-                            caption=text or "📷 Фото",
-                            parse_mode="HTML" if text else None
-                        ))
-                    else:
-                        media.append(InputMediaPhoto(media=fid))
-                
-                sent_messages = await context.bot.send_media_group(
-                    chat_id=query.message.chat_id,
-                    media=media
-                )
-                
-                # Send buttons separately for media group
-                if buttons_list:
-                    button_text = "🔗"
-                    for i, button in enumerate(buttons_list):
-                        button_text += f" [{i+1}]"
-                    await context.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=button_text,
-                        reply_markup=create_buttons_markup(buttons_list),
-                    )
         else:
             # Text only
             await query.message.reply_text(

@@ -88,11 +88,19 @@ async def main():
             MANAGE_NEW_PHOTOS: [
                 CallbackQueryHandler(
                     bot.post_handlers.manage_photos_handler,
-                    pattern=r"^photo_(del_new_\d+|add_new|finish_new)$",
+                    pattern=r"^(media_|photo_)(del_new_\d+|add_new|finish_new)$",
                 ),
                 MessageHandler(
                     filters.PHOTO,
-                    bot.post_handlers.add_single_photo_handler,
+                    bot.post_handlers.add_media_handler,
+                ),
+                MessageHandler(
+                    filters.VIDEO,
+                    bot.post_handlers.add_media_handler,
+                ),
+                MessageHandler(
+                    filters.Document.ALL,
+                    bot.post_handlers.add_media_handler,
                 ),
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
             ],
@@ -100,11 +108,15 @@ async def main():
             ADD_PHOTO: [
                 MessageHandler(
                     filters.PHOTO,
-                    bot.post_handlers.add_photo_handler,
+                    bot.post_handlers.add_media_handler,
                 ),
                 MessageHandler(
-                    filters.Regex("^Пропустити$"),
-                    bot.post_handlers.skip_photo_handler,
+                    filters.VIDEO,
+                    bot.post_handlers.add_media_handler,
+                ),
+                MessageHandler(
+                    filters.Document.ALL,
+                    bot.post_handlers.add_media_handler,
                 ),
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
             ],
@@ -124,7 +136,15 @@ async def main():
                 ),
                 MessageHandler(
                     filters.PHOTO,
-                    bot.post_handlers.add_single_photo_handler,
+                    bot.post_handlers.add_media_handler,
+                ),
+                MessageHandler(
+                    filters.VIDEO,
+                    bot.post_handlers.add_media_handler,
+                ),
+                MessageHandler(
+                    filters.Document.ALL,
+                    bot.post_handlers.add_media_handler,
                 ),
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
             ],
@@ -160,6 +180,14 @@ async def main():
                     pattern=r"^(send_now|schedule|edit_text|edit_photo|edit_buttons)$",
                 ),
                 CallbackQueryHandler(
+                    bot.post_handlers.change_layout_handler,
+                    pattern="^change_layout$",
+                ),
+                CallbackQueryHandler(
+                    bot.post_handlers.handle_layout_choice,
+                    pattern=r"^(layout_photo_top|layout_photo_bottom|back_to_schedule)$",
+                ),
+                CallbackQueryHandler(
                     bot.post_handlers.manage_photos_handler,
                     pattern=r"^photo_(del_new_\d+|add_new|finish_new)$",
                 ),
@@ -176,7 +204,15 @@ async def main():
                 ),
                 MessageHandler(
                     filters.PHOTO,
-                    bot.post_handlers.add_single_photo_handler,
+                    bot.post_handlers.add_media_handler,
+                ),
+                MessageHandler(
+                    filters.VIDEO,
+                    bot.post_handlers.add_media_handler,
+                ),
+                MessageHandler(
+                    filters.Document.ALL,
+                    bot.post_handlers.add_media_handler,
                 ),
             ],
             SELECT_CHANNEL: [
@@ -203,7 +239,11 @@ async def main():
             EDIT_SCHEDULED_POST: [
                 CallbackQueryHandler(
                     bot.scheduled_handlers.edit_post_menu_handler,
-                    pattern="^(edit_text|edit_photo|edit_buttons|edit_time|preview_edit|save_edit|cancel_edit)$",
+                    pattern="^(edit_text|edit_photo|edit_buttons|edit_layout|edit_time|preview_edit|save_edit|cancel_edit)$",
+                ),
+                CallbackQueryHandler(
+                    bot.scheduled_handlers.handle_scheduled_layout_choice,
+                    pattern=r"^(layout_photo_top|layout_photo_bottom|back_to_schedule)$",
                 ),
                 MessageHandler(filters.Regex("^❌ Скасувати$"), bot.cancel),
             ],
