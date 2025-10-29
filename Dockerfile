@@ -1,6 +1,13 @@
 # Використовуємо офіційний Python образ
 FROM python:3.11-slim
 
+# Системні бібліотеки, потрібні для роботи Pillow (JPEG/PNG)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       libjpeg62-turbo \
+       libpng16-16 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Встановлюємо робочу директорію
 WORKDIR /app
 

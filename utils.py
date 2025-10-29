@@ -9,15 +9,53 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _is_valid_html_markup(sample: str) -> bool:
+    """Very small validator for Telegram-supported HTML.
+
+    Checks balanced pairs for a limited set of tags to avoid
+    BadRequest: Can't parse entities errors when using parse_mode='HTML'.
+    This is intentionally simple and conservative.
+    """
+    import re
+
+    # Normalize tags like <a href="..."> to just <a>
+    normalized = re.sub(r"<a\s+[^>]*>", "<a>", sample, flags=re.IGNORECASE)
+
+    # Supported paired tags
+    paired_tags = [
+        "b", "strong", "i", "em", "u", "s", "strike", "code",
+        "pre", "a", "tg-spoiler", "blockquote",
+    ]
+
+    for tag in paired_tags:
+        opens = len(re.findall(fr"<\s*{tag}\s*>", normalized, flags=re.IGNORECASE))
+        closes = len(re.findall(fr"</\s*{tag}\s*>", normalized, flags=re.IGNORECASE))
+        if opens != closes:
+            return False
+
+    # Basic check for unexpected end tags without any opening tag
+    # e.g. stray </i>
+    for m in re.finditer(r"</\s*([a-zA-Z\-]+)\s*>", normalized):
+        tag = m.group(1).lower()
+        if tag in paired_tags:
+            # Ensure there is at least one opening tag before this position
+            before = normalized[: m.start()]
+            if not re.search(fr"<\s*{tag}\b", before, flags=re.IGNORECASE):
+                return False
+
+    return True
+
+
 def detect_parse_mode(text: str):
     """Return appropriate Telegram parse_mode for given text or None.
 
     Heuristics:
-    - If HTML-like tags are present (e.g., <b>, <i>, <u>, <s>, <a href=...>), use 'HTML'.
-    - Else if common Markdown markers are present (e.g., *bold*, _italic_, [text](url), `code`), use 'Markdown'.
+    - If HTML-like tags are present AND markup looks valid, use 'HTML'.
+    - Else if common Markdown markers are present, use 'Markdown'.
     - Else return None (plain text).
 
-    Supported HTML tags: <b>, <strong>, <i>, <em>, <u>, <s>, <strike>, <code>, <pre>, <a href="">, <blockquote>, <tg-spoiler>.
+    Supported HTML tags: <b>, <strong>, <i>, <em>, <u>, <s>, <strike>,
+    <code>, <pre>, <a href="">, <blockquote>, <tg-spoiler>.
     """
     if not text:
         return None
@@ -51,7 +89,7 @@ def detect_parse_mode(text: str):
         or "<blockquote>" in sample
         or "</blockquote>" in sample
     ):
-        return "HTML"
+        return "HTML" if _is_valid_html_markup(sample) else None
 
     # Basic Markdown detection
     if (
@@ -276,6 +314,7 @@ def create_schedule_keyboard():
         [InlineKeyboardButton("✏️ Редагувати текст", callback_data="edit_text")],
         [InlineKeyboardButton("📷 Редагувати фото", callback_data="edit_photo")],
         [InlineKeyboardButton("🔘 Редагувати кнопки", callback_data="edit_buttons")],
+        [InlineKeyboardButton("🖼 Фото під текстом", callback_data="layout_photo_bottom")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -305,6 +344,53 @@ def create_button_management_keyboard(buttons, context="new"):
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_media_type(file):
+    """Determine media type from Telegram file object."""
+    if hasattr(file, 'video'):
+        return 'video'
+    elif hasattr(file, 'document'):
+        return 'document'
+    elif hasattr(file, 'photo'):
+        return 'photo'
+    return 'unknown'
+
+def get_media_file_id(file):
+    """Get file_id from Telegram file object."""
+    if hasattr(file, 'video'):
+        return file.video.file_id
+    elif hasattr(file, 'document'):
+        return file.document.file_id
+    elif hasattr(file, 'photo'):
+        return file.photo[-1].file_id  # Get highest quality photo
+    return None
+
+
+def create_media_management_keyboard(media_list, context="new"):
+    """create keyboard for managing media (add/delete)."""
+    keyboard = []
+
+    # show existing media with delete option
+    for idx, media_item in enumerate(media_list):
+        media_type = media_item.get('type', 'photo')
+        media_icon = '🎥' if media_type == 'video' else '📄' if media_type == 'document' else '📷'
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"❌ {media_icon} {idx + 1}", callback_data=f"media_del_{context}_{idx}"
+                )
+            ]
+        )
+
+    # add new media and finish options
+    keyboard.append(
+        [InlineKeyboardButton("➕ Додати медіа", callback_data=f"media_add_{context}")]
+    )
+    keyboard.append(
+        [InlineKeyboardButton("✅ Завершити", callback_data=f"media_finish_{context}")]
+    )
+
+    return InlineKeyboardMarkup(keyboard)
+
 def create_photo_management_keyboard(photos, context="new"):
     """create keyboard for managing photos (add/delete)."""
     keyboard = []
@@ -328,3 +414,112 @@ def create_photo_management_keyboard(photos, context="new"):
     )
 
     return InlineKeyboardMarkup(keyboard)
+
+
+async def upload_photo_to_telegraph_by_file_id(bot, file_id: str):
+    """Upload photo to Telegraph using raw urllib approach.
+    
+    Telegraph is very picky about multipart encoding, so we build it manually.
+    """
+    import logging
+    from io import BytesIO
+    from PIL import Image
+    import httpx
+    import uuid
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # 1) Download file
+        tg_file = await bot.get_file(file_id)
+        file_bytes = await tg_file.download_as_bytearray()
+        
+        logger.info(f"Downloaded: {len(file_bytes)} bytes")
+
+        # 2) Process with PIL
+        try:
+            img = Image.open(BytesIO(file_bytes))
+            img = img.convert("RGB")
+            
+            # Resize if too large
+            max_side = 1600
+            w, h = img.size
+            if max(w, h) > max_side:
+                ratio = max_side / max(w, h)
+                img = img.resize((int(w * ratio), int(h * ratio)), Image.Resampling.LANCZOS)
+
+            # Save as JPEG with good quality
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=90, optimize=True)
+            jpeg_data = buf.getvalue()
+            
+            logger.info(f"JPEG: {len(jpeg_data)} bytes")
+                
+        except Exception as e:
+            logger.error(f"PIL failed: {e}")
+            jpeg_data = bytes(file_bytes)
+
+        # 3) Manual multipart/form-data encoding
+        boundary = f'----WebKitFormBoundary{uuid.uuid4().hex[:16]}'
+        
+        # Build multipart body manually
+        body_parts = []
+        
+        # Add file field
+        body_parts.append(f'--{boundary}'.encode())
+        body_parts.append(b'Content-Disposition: form-data; name="file"; filename="image.jpg"')
+        body_parts.append(b'Content-Type: image/jpeg')
+        body_parts.append(b'')
+        body_parts.append(jpeg_data)
+        
+        # End boundary
+        body_parts.append(f'--{boundary}--'.encode())
+        body_parts.append(b'')
+        
+        # Join with CRLF
+        body = b'\r\n'.join(body_parts)
+        
+        logger.info(f"Multipart body: {len(body)} bytes")
+        
+        # 4) Upload with manual headers
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                'https://telegra.ph/upload',
+                content=body,
+                headers={
+                    'Content-Type': f'multipart/form-data; boundary={boundary}',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': '*/*',
+                    'Origin': 'https://telegra.ph',
+                    'Referer': 'https://telegra.ph/',
+                }
+            )
+            
+            logger.info(f"Response: {response.status_code}")
+            logger.info(f"Body: {response.text[:300]}")
+            
+            if response.status_code == 200:
+                import json
+                try:
+                    result = json.loads(response.text)
+                    
+                    if isinstance(result, list) and len(result) > 0:
+                        src = result[0].get('src')
+                        if src:
+                            url = f"https://telegra.ph{src}"
+                            logger.info(f"✓ Success: {url}")
+                            return url
+                    
+                    if isinstance(result, dict) and result.get('error'):
+                        logger.error(f"API error: {result['error']}")
+                        
+                except Exception as e:
+                    logger.error(f"Parse error: {e}")
+            else:
+                logger.error(f"HTTP {response.status_code}: {response.text}")
+        
+        return None
+                
+    except Exception as e:
+        logger.error(f"Upload failed: {e}", exc_info=True)
+        return None
