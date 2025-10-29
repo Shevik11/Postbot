@@ -298,6 +298,7 @@ def create_edit_menu_keyboard():
         [InlineKeyboardButton("✏️ Редагувати текст", callback_data="edit_text")],
         [InlineKeyboardButton("📷 Редагувати фото", callback_data="edit_photo")],
         [InlineKeyboardButton("🔘 Редагувати кнопки", callback_data="edit_buttons")],
+        [InlineKeyboardButton("🖼️ Змінити розташування", callback_data="edit_layout")],
         [InlineKeyboardButton("✏️ Змінити час", callback_data="edit_time")],
         [InlineKeyboardButton("👀 Попередній перегляд", callback_data="preview_edit")],
         [InlineKeyboardButton("✅ Зберегти зміни", callback_data="save_edit")],
@@ -343,6 +344,53 @@ def create_button_management_keyboard(buttons, context="new"):
 
     return InlineKeyboardMarkup(keyboard)
 
+
+def get_media_type(file):
+    """Determine media type from Telegram file object."""
+    if hasattr(file, 'video'):
+        return 'video'
+    elif hasattr(file, 'document'):
+        return 'document'
+    elif hasattr(file, 'photo'):
+        return 'photo'
+    return 'unknown'
+
+def get_media_file_id(file):
+    """Get file_id from Telegram file object."""
+    if hasattr(file, 'video'):
+        return file.video.file_id
+    elif hasattr(file, 'document'):
+        return file.document.file_id
+    elif hasattr(file, 'photo'):
+        return file.photo[-1].file_id  # Get highest quality photo
+    return None
+
+
+def create_media_management_keyboard(media_list, context="new"):
+    """create keyboard for managing media (add/delete)."""
+    keyboard = []
+
+    # show existing media with delete option
+    for idx, media_item in enumerate(media_list):
+        media_type = media_item.get('type', 'photo')
+        media_icon = '🎥' if media_type == 'video' else '📄' if media_type == 'document' else '📷'
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"❌ {media_icon} {idx + 1}", callback_data=f"media_del_{context}_{idx}"
+                )
+            ]
+        )
+
+    # add new media and finish options
+    keyboard.append(
+        [InlineKeyboardButton("➕ Додати медіа", callback_data=f"media_add_{context}")]
+    )
+    keyboard.append(
+        [InlineKeyboardButton("✅ Завершити", callback_data=f"media_finish_{context}")]
+    )
+
+    return InlineKeyboardMarkup(keyboard)
 
 def get_media_type(file):
     """Determine media type from Telegram file object."""

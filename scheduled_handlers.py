@@ -31,6 +31,7 @@ from utils import (
     cancel_keyboard,
     create_button_management_keyboard,
     create_edit_menu_keyboard,
+    create_layout_keyboard,
     create_photo_management_keyboard,
     create_main_keyboard,
     entities_to_html,
@@ -100,7 +101,7 @@ class ScheduledPostHandlers:
             await query.edit_message_text("❌ Post not found.")
             return VIEW_SCHEDULED
 
-        text, photo_id, buttons, publish_time, channel_id = post_data
+        text, photo_id, buttons, publish_time, channel_id, layout = post_data
 
         photos = []
         if photo_id:
@@ -173,7 +174,7 @@ class ScheduledPostHandlers:
             await query.edit_message_text("❌ Post not found.")
             return VIEW_SCHEDULED
 
-        text, photo_id, buttons, publish_time, channel_id = post_data
+        text, photo_id, buttons, publish_time, channel_id, layout = post_data
 
         photos = []
         if photo_id:
@@ -192,7 +193,7 @@ class ScheduledPostHandlers:
                 logger.warning(f"Failed to parse buttons: {e}, buttons: {buttons}")
                 parsed_buttons = []
 
-        post_data_dict = {"text": text, "photos": photos, "buttons": parsed_buttons}
+        post_data_dict = {"text": text, "photos": photos, "buttons": parsed_buttons, "layout": layout or "photo_top"}
 
         await self.post_handlers.send_post_job(
             channel_id, post_data_dict, update.effective_user.id, context
@@ -226,6 +227,8 @@ class ScheduledPostHandlers:
             return await self.edit_scheduled_photo(update, context)
         elif query.data == "edit_buttons":
             return await self.edit_scheduled_buttons(update, context)
+        elif query.data == "edit_layout":
+            return await self.edit_scheduled_layout(update, context)
         elif query.data == "edit_time":
             cal = create_calendar()
             await query.message.reply_text(
@@ -749,3 +752,41 @@ class ScheduledPostHandlers:
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown",
             )
+
+    async def edit_scheduled_layout(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Edit scheduled post layout."""
+        query = update.callback_query
+        await query.answer()
+        
+        await query.edit_message_text(
+            "🖼️ Оберіть розташування фото:",
+            reply_markup=create_layout_keyboard()
+        )
+        return EDIT_SCHEDULED_POST
+
+    async def handle_scheduled_layout_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle scheduled post layout choice selection."""
+        query = update.callback_query
+        await query.answer()
+        
+        data = query.data
+        
+        if data == "layout_photo_top":
+            context.user_data["editing_post"]["layout"] = "photo_top"
+            await query.edit_message_text("✅ Розташування: фото зверху")
+        elif data == "layout_photo_bottom":
+            context.user_data["editing_post"]["layout"] = "photo_bottom"
+            await query.edit_message_text("✅ Розташування: фото знизу")
+        elif data == "back_to_schedule":
+            await query.edit_message_text(
+                "📝 **РЕДАГУВАННЯ ПОСТА**\n\nЩо хочете редагувати далі?",
+                reply_markup=create_edit_menu_keyboard()
+            )
+            return EDIT_SCHEDULED_POST
+        
+        # Show edit menu
+        await query.message.reply_text(
+            "📝 **РЕДАГУВАННЯ ПОСТА**\n\nЩо хочете редагувати далі?",
+            reply_markup=create_edit_menu_keyboard()
+        )
+        return EDIT_SCHEDULED_POST
