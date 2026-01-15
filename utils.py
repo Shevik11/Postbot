@@ -320,6 +320,16 @@ def create_schedule_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
+def create_layout_keyboard():
+    """create keyboard for choosing photo layout."""
+    keyboard = [
+        [InlineKeyboardButton("🖼️ Фото зверху", callback_data="layout_photo_top")],
+        [InlineKeyboardButton("🖼️ Фото знизу", callback_data="layout_photo_bottom")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="back_to_schedule")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def create_button_management_keyboard(buttons, context="new"):
     """create keyboard for managing buttons (add/delete)."""
     keyboard = []
@@ -344,53 +354,6 @@ def create_button_management_keyboard(buttons, context="new"):
 
     return InlineKeyboardMarkup(keyboard)
 
-
-def get_media_type(file):
-    """Determine media type from Telegram file object."""
-    if hasattr(file, 'video'):
-        return 'video'
-    elif hasattr(file, 'document'):
-        return 'document'
-    elif hasattr(file, 'photo'):
-        return 'photo'
-    return 'unknown'
-
-def get_media_file_id(file):
-    """Get file_id from Telegram file object."""
-    if hasattr(file, 'video'):
-        return file.video.file_id
-    elif hasattr(file, 'document'):
-        return file.document.file_id
-    elif hasattr(file, 'photo'):
-        return file.photo[-1].file_id  # Get highest quality photo
-    return None
-
-
-def create_media_management_keyboard(media_list, context="new"):
-    """create keyboard for managing media (add/delete)."""
-    keyboard = []
-
-    # show existing media with delete option
-    for idx, media_item in enumerate(media_list):
-        media_type = media_item.get('type', 'photo')
-        media_icon = '🎥' if media_type == 'video' else '📄' if media_type == 'document' else '📷'
-        keyboard.append(
-            [
-                InlineKeyboardButton(
-                    f"❌ {media_icon} {idx + 1}", callback_data=f"media_del_{context}_{idx}"
-                )
-            ]
-        )
-
-    # add new media and finish options
-    keyboard.append(
-        [InlineKeyboardButton("➕ Додати медіа", callback_data=f"media_add_{context}")]
-    )
-    keyboard.append(
-        [InlineKeyboardButton("✅ Завершити", callback_data=f"media_finish_{context}")]
-    )
-
-    return InlineKeyboardMarkup(keyboard)
 
 def get_media_type(file):
     """Determine media type from Telegram file object."""
@@ -469,13 +432,15 @@ async def upload_photo_to_telegraph_by_file_id(bot, file_id: str):
     
     Telegraph is very picky about multipart encoding, so we build it manually.
     """
-    import logging
-    from io import BytesIO
-    from PIL import Image
-    import httpx
+    import json
     import uuid
+    from io import BytesIO
+    import httpx
     
-    logger = logging.getLogger(__name__)
+    try:
+        from PIL import Image
+    except ImportError:
+        Image = None
     
     try:
         # 1) Download file
@@ -484,28 +449,29 @@ async def upload_photo_to_telegraph_by_file_id(bot, file_id: str):
         
         logger.info(f"Downloaded: {len(file_bytes)} bytes")
 
-        # 2) Process with PIL
-        try:
-            img = Image.open(BytesIO(file_bytes))
-            img = img.convert("RGB")
-            
-            # Resize if too large
-            max_side = 1600
-            w, h = img.size
-            if max(w, h) > max_side:
-                ratio = max_side / max(w, h)
-                img = img.resize((int(w * ratio), int(h * ratio)), Image.Resampling.LANCZOS)
-
-            # Save as JPEG with good quality
-            buf = BytesIO()
-            img.save(buf, format="JPEG", quality=90, optimize=True)
-            jpeg_data = buf.getvalue()
-            
-            logger.info(f"JPEG: {len(jpeg_data)} bytes")
+        # 2) Process with PIL if available
+        jpeg_data = bytes(file_bytes)
+        if Image is not None:
+            try:
+                img = Image.open(BytesIO(file_bytes))
+                img = img.convert("RGB")
                 
-        except Exception as e:
-            logger.error(f"PIL failed: {e}")
-            jpeg_data = bytes(file_bytes)
+                # Resize if too large
+                max_side = 1600
+                w, h = img.size
+                if max(w, h) > max_side:
+                    ratio = max_side / max(w, h)
+                    img = img.resize((int(w * ratio), int(h * ratio)), Image.Resampling.LANCZOS)
+
+                # Save as JPEG with good quality
+                buf = BytesIO()
+                img.save(buf, format="JPEG", quality=90, optimize=True)
+                jpeg_data = buf.getvalue()
+                
+                logger.info(f"JPEG: {len(jpeg_data)} bytes")
+                    
+            except Exception as e:
+                logger.warning(f"PIL processing failed: {e}, using original")
 
         # 3) Manual multipart/form-data encoding
         boundary = f'----WebKitFormBoundary{uuid.uuid4().hex[:16]}'
@@ -547,7 +513,6 @@ async def upload_photo_to_telegraph_by_file_id(bot, file_id: str):
             logger.info(f"Body: {response.text[:300]}")
             
             if response.status_code == 200:
-                import json
                 try:
                     result = json.loads(response.text)
                     

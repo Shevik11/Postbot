@@ -106,9 +106,18 @@ class ScheduledPostHandlers:
         photos = []
         if photo_id:
             try:
-                photos = eval(photo_id) if photo_id.startswith("[") else [photo_id]
+                import json
+                import ast
+                # Try JSON first (safer), then ast.literal_eval for old format
+                if photo_id.startswith("[") or photo_id.startswith("{"):
+                    try:
+                        photos = json.loads(photo_id)
+                    except (json.JSONDecodeError, ValueError):
+                        photos = ast.literal_eval(photo_id)
+                else:
+                    photos = [photo_id]
             except Exception:
-                photos = [photo_id]
+                photos = [photo_id] if photo_id else []
         parsed_buttons = []
         if buttons:
             try:
@@ -179,9 +188,18 @@ class ScheduledPostHandlers:
         photos = []
         if photo_id:
             try:
-                photos = eval(photo_id) if photo_id.startswith("[") else [photo_id]
+                import json
+                import ast
+                # Try JSON first (safer), then ast.literal_eval for old format
+                if photo_id.startswith("[") or photo_id.startswith("{"):
+                    try:
+                        photos = json.loads(photo_id)
+                    except (json.JSONDecodeError, ValueError):
+                        photos = ast.literal_eval(photo_id)
+                else:
+                    photos = [photo_id]
             except Exception:
-                photos = [photo_id]
+                photos = [photo_id] if photo_id else []
 
         parsed_buttons = []
         if buttons:
