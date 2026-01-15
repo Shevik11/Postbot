@@ -37,12 +37,12 @@ from config import (
     EDIT_PHOTO_FROM_SCHEDULE,
     get_bot_token,
 )
-from database import db_connect
+from database import init_database
 
 
 async def main():
-    # Create database on startup
-    db_connect()
+    # Initialize database on startup
+    init_database()
 
     TOKEN = get_bot_token()
     if not TOKEN:

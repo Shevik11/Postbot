@@ -30,7 +30,6 @@ from utils import (
     create_layout_keyboard,
     create_main_keyboard,
     create_media_management_keyboard,
-    create_media_management_keyboard,
     create_photo_management_keyboard,
     photo_selection_keyboard,
     create_schedule_keyboard,
@@ -39,7 +38,6 @@ from utils import (
     format_text_for_preview,
     get_formatting_warnings,
     parse_buttons,
-    photo_selection_keyboard,
     skip_keyboard,
     skip_photo_keyboard,
 )
